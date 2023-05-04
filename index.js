@@ -18,11 +18,14 @@ const io = socketio(server, {
 
 
 const PORT = process.env.PORT || 3000;
+const ngrokurl = " https://3f0f-41-101-206-187.ngrok-free.app";
+// const url = "http://localhost:8050"
 
 // enable CORS for socket connections
 
 
-const activeMeetings = new Set();
+const activeMeetings = {};
+const questionSockets = {};
 
 
 
@@ -35,7 +38,7 @@ io.on('connection', (socket) => {
   console.log(`New connection: ${socket.id}`);
 
   socket.on('startMeeting', ({ token, meetingId }, callback) => {
-    axios.get('http://localhost:8050/api/courses/start/' + meetingId, {
+    axios.get(ngrokurl+'/api/courses/start/' + meetingId, {
       headers: {
         Authorization: `Bearer ${token}`
       }
@@ -43,7 +46,7 @@ io.on('connection', (socket) => {
     .then(response => {
       // handle success
       console.log(response.data);
-      activeMeetings.add(meetingId);
+      activeMeetings[meetingId] = socket;
 
       // Join the teacher to the meeting room
       socket.join(`meeting-${meetingId}`);
@@ -63,7 +66,7 @@ io.on('connection', (socket) => {
   socket.on('joinMeeting', ({ token , meetingId }, callback) => {
     console.log("object:"+meetingId);
     // Get the meeting details from the list of active meetings
-    const hasMeeting = activeMeetings.has(meetingId);
+    const hasMeeting = meetingId in activeMeetings;
 
     // i should verify if it's a student first
     if (!hasMeeting) {
@@ -71,7 +74,7 @@ io.on('connection', (socket) => {
       return callback({ error: 'Meeting not found' });
     }
 
-    axios.get('http://localhost:8050/api/courses/join/' + meetingId, {
+    axios.get(ngrokurl+'/api/courses/join/' + meetingId, {
       headers: {
         Authorization: `Bearer ${token}`
       }
@@ -102,7 +105,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('stream', ({ meetingId, stream }) => {
-    console.log("here",stream);
+    console.log("here stream",stream);
     //io.to(`meeting-${meetingId}`).emit('stream', { socketId: socket.id, stream:stream });
     /*if (Object.keys(stream).length !== 0) {
         // Broadcast the stream to all sockets in the meeting room
@@ -111,14 +114,41 @@ io.on('connection', (socket) => {
     socket.broadcast.to(`meeting-${meetingId}`).emit('stream', { socketId: socket.id, stream: stream });
     
   });
-  socket.on('message', ({ meetingId, message ,sender}) => {
-    console.log("here",message);
+
+  socket.on('audio', ({ meetingId, audio }) => {
+    console.log("here audio",audio);
     //io.to(`meeting-${meetingId}`).emit('stream', { socketId: socket.id, stream:stream });
     /*if (Object.keys(stream).length !== 0) {
         // Broadcast the stream to all sockets in the meeting room
         io.to(`meeting-${meetingId}`).emit('stream', { socketId: socket.id, stream:stream });
     }*/
-    socket.broadcast.to(`meeting-${meetingId}`).emit('stream', { socketId: socket.id, message: message ,sender: sender });
+    socket.broadcast.to(`meeting-${meetingId}`).emit('audio', {  audio: audio });
+    
+  });
+
+  socket.on('askQuestion', ({meetingId}) => {
+    const teacherSocket = activeMeetings[meetingId];
+    if (teacherSocket) {
+      questionSockets[socket.id] = socket;
+      teacherSocket.emit('askQuestion' , {socketId : socket.id});
+    }
+  });
+
+
+  socket.on('permissionAccepted', ({socketId}) => {
+    const studentSocket = questionSockets[socketId];
+    console.log(studentSocket);
+    if (studentSocket) {
+      delete questionSockets[socketId];
+      studentSocket.emit('permissionAccepted');
+    }
+  });
+
+  
+
+  socket.on('message', ({ meetingId, message ,sender}) => {
+    console.log("here",message);
+    socket.broadcast.to(`meeting-${meetingId}`).emit('message', { socketId: socket.id, message: message ,sender: sender });
     
   });
 
